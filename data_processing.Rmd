@@ -1,0 +1,322 @@
+---
+title: "Spaceship_Titanic"
+output: pdf_document
+date: '2022-04-17'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## EDA
+
+Let us start from uploading the data.
+
+```{r getdata}
+library(data.table)
+setwd("C:/playground/spaceship-titanic/")
+train <- fread("train.csv")
+test <- fread("test.csv")
+```
+
+Let us get full list of planets:
+
+```{r planets}
+planets_train <- table(train$HomePlanet)
+planets_test <- table(test$HomePlanet)
+print(planets_train)
+print(planets_test)
+train[HomePlanet == "Earth", HomePlanet := 0]
+train[HomePlanet == "Europa", HomePlanet := 1]
+train[HomePlanet == "Mars", HomePlanet := 2]
+test[HomePlanet == "Earth", HomePlanet := 0]
+test[HomePlanet == "Europa", HomePlanet := 1]
+test[HomePlanet == "Mars", HomePlanet := 2]
+train[HomePlanet == "", HomePlanet := 0]
+test[HomePlanet == "", HomePlanet := 0]
+train$HomePlanet <- as.numeric(train$HomePlanet)
+test$HomePlanet <- as.numeric(test$HomePlanet)
+train[, Transported := as.numeric(Transported)]
+```
+
+The correlation with HomePlanet is 11.55%.
+
+```{r correlation_with_planet}
+print(cor.test(train$HomePlanet, train$Transported), method = "spearman")
+```
+
+The correlation with age is -7.42%.
+
+```{r correlation_with_age}
+print(summary(train$Age))
+print(summary(test$Age))
+train[is.na(Age), Age := 28.83]
+test[is.na(Age), Age := 28.66]
+print(summary(train$Age))
+print(summary(test$Age))
+print(cor.test(train$Age, train$Transported), method = "spearman")
+```
+
+Let us get full list of destinations (unfortunately, the correlation is just 6.8%):
+
+```{r destinations}
+destinations_train <- table(train$Destination)
+destinations_test <- table(test$Destination)
+print(destinations_train)
+print(destinations_test)
+train[Destination == "TRAPPIST-1e", Destination := 0]
+train[Destination == "", Destination := 0]
+train[Destination == "55 Cancri e", Destination := 1]
+train[Destination == "PSO J318.5-22", Destination := 2]
+test[Destination == "TRAPPIST-1e", Destination := 0]
+test[Destination == "", Destination := 0]
+test[Destination == "55 Cancri e", Destination := 1]
+test[Destination == "PSO J318.5-22", Destination := 2]
+train[, Destination := as.numeric(Destination)]
+test[, Destination := as.numeric(Destination)]
+print(cor.test(train$Destination, train$Transported), method = "spearman")
+```
+
+Let us look into the Cryosleep column:
+
+```{r cryosleep}
+print(summary(train$CryoSleep))
+print(summary(test$CryoSleep))
+train[is.na(CryoSleep), CryoSleep := FALSE]
+test[is.na(CryoSleep), CryoSleep := FALSE]
+train[, CryoSleep := as.numeric(CryoSleep)]
+test[, CryoSleep := as.numeric(CryoSleep)]
+print(cor.test(train$CryoSleep, train$Transported), method = "spearman")
+```
+
+We have correlation of 46%. It is an important one!
+
+Let us look into the VIP status. Correlation is just -3.73%.
+
+```{r vipstatus}
+print(summary(train$VIP))
+print(summary(test$VIP))
+train[is.na(VIP), VIP := FALSE]
+test[is.na(VIP), VIP := FALSE]
+train[, VIP := as.numeric(VIP)]
+test[, VIP := as.numeric(VIP)]
+print(cor.test(train$VIP, train$Transported), method = "spearman")
+```
+
+Let us look into the luxury columns:
+```{r luxurycolumns}
+train[is.na(RoomService), RoomService := 0]
+train[is.na(FoodCourt), FoodCourt := 0]
+train[is.na(ShoppingMall), ShoppingMall := 0]
+train[is.na(Spa), Spa := 0]
+train[is.na(VRDeck), VRDeck := 0]
+train[, Total :=  RoomService + FoodCourt + ShoppingMall + Spa + VRDeck]
+train[, Total3 := RoomService + Spa + VRDeck]
+test[is.na(RoomService), RoomService := 0]
+test[is.na(FoodCourt), FoodCourt := 0]
+test[is.na(ShoppingMall), ShoppingMall := 0]
+test[is.na(Spa), Spa := 0]
+test[is.na(VRDeck), VRDeck := 0]
+test[, Total :=  RoomService + FoodCourt + ShoppingMall + Spa + VRDeck]
+test[, Total3 := RoomService + Spa + VRDeck]
+print(cor.test(train$RoomService, train$Transported), method = "spearman")
+print(cor.test(train$FoodCourt, train$Transported), method = "spearman")
+print(cor.test(train$ShoppingMall, train$Transported), method = "spearman")
+print(cor.test(train$Spa, train$Transported), method = "spearman")
+print(cor.test(train$VRDeck, train$Transported), method = "spearman")
+print(cor.test(train$Total, train$Transported), method = "spearman")
+print(cor.test(train$Total3, train$Transported), method = "spearman")
+```
+
+The correlations are significant:
+for RoomService: -24.11%,
+for FoodCourt: 4.56%,
+for ShoppingMall: 0.94%,
+for Spa: -21.85%,
+for VRDeck: -20.49%,
+for Total: -19.95%
+for the best 3 features: -34.83%.
+
+Now let us try to get something out of the names (correlation is 0.37%):
+
+```{r names}
+train[, numberOfChars := nchar(Name)]
+train[, numberOfWords := sapply(Name, function(x) {length(strsplit(x, ' ')[[1]])})]
+test[, numberOfChars := nchar(Name)]
+test[, numberOfWords := sapply(Name, function(x) {length(strsplit(x, ' ')[[1]])})]
+print(cor.test(train$numberOfChars, train$Transported), method = "spearman")
+print(cor.test(train$numberOfWords, train$Transported), method = "spearman")
+```
+
+Now let us process the cabin:
+
+```{r cabin}
+train[, cabin_1 := sapply(Cabin, function(x) {strsplit(x, '/')[[1]][1]})]
+train[, cabin_2 := sapply(Cabin, function(x) {strsplit(x, '/')[[1]][2]})]
+train[, cabin_3 := sapply(Cabin, function(x) {strsplit(x, '/')[[1]][3]})]
+test[, cabin_1 := sapply(Cabin, function(x) {strsplit(x, '/')[[1]][1]})]
+test[, cabin_2 := sapply(Cabin, function(x) {strsplit(x, '/')[[1]][2]})]
+test[, cabin_3 := sapply(Cabin, function(x) {strsplit(x, '/')[[1]][3]})]
+train[cabin_1 == "A", cabin_1 := 1]
+train[cabin_1 == "B", cabin_1 := 2]
+train[cabin_1 == "C", cabin_1 := 3]
+train[cabin_1 == "D", cabin_1 := 4]
+train[cabin_1 == "E", cabin_1 := 5]
+train[cabin_1 == "F", cabin_1 := 6]
+train[is.na(cabin_1), cabin_1 := 6]
+train[cabin_1 == "G", cabin_1 := 7]
+train[cabin_1 == "T", cabin_1 := 8]
+test[cabin_1 == "A", cabin_1 := 1]
+test[cabin_1 == "B", cabin_1 := 2]
+test[cabin_1 == "C", cabin_1 := 3]
+test[cabin_1 == "D", cabin_1 := 4]
+test[cabin_1 == "E", cabin_1 := 5]
+test[cabin_1 == "F", cabin_1 := 6]
+test[is.na(cabin_1), cabin_1 := 6]
+test[cabin_1 == "G", cabin_1 := 7]
+test[cabin_1 == "T", cabin_1 := 8]
+train[, cabin_1 := as.numeric(cabin_1)]
+test[, cabin_1 := as.numeric(cabin_1)]
+train[is.na(cabin_2), cabin_2 := -1]
+test[is.na(cabin_2), cabin_2 := -1]
+train[, cabin_2 := as.numeric(cabin_2)]
+test[, cabin_2 := as.numeric(cabin_2)]
+train[cabin_3 == "P", cabin_3 := 0]
+train[cabin_3 == "S", cabin_3 := 1]
+train[is.na(cabin_3), cabin_3 := 1]
+test[cabin_3 == "P", cabin_3 := 0]
+test[cabin_3 == "S", cabin_3 := 1]
+test[is.na(cabin_3), cabin_3 := 1]
+train[, cabin_3 := as.numeric(cabin_3)]
+test[, cabin_3 := as.numeric(cabin_3)]
+print(cor.test(train$cabin_1, train$Transported), method = "spearman")
+print(cor.test(train$cabin_2, train$Transported), method = "spearman")
+print(cor.test(train$cabin_3, train$Transported), method = "spearman")
+```
+
+The correlations are not so good: -11.49%, -4.38%, 10.14%
+
+Let us look into the passenger id.
+
+```{r passengerid}
+train[, passenger1 := as.numeric(sapply(PassengerId, function(x) {strsplit(x, "_")[[1]][1]}))]
+train[, passenger2 := as.numeric(sapply(PassengerId, function(x) {strsplit(x, "_")[[1]][2]}))]
+test[, passenger1 := as.numeric(sapply(PassengerId, function(x) {strsplit(x, "_")[[1]][1]}))]
+test[, passenger2 := as.numeric(sapply(PassengerId, function(x) {strsplit(x, "_")[[1]][2]}))]
+print(cor.test(train$passenger1, train$Transported), method = "spearman")
+print(cor.test(train$passenger2, train$Transported), method = "spearman")
+```
+
+The correlations are 2.15% and 6.64%.
+Now let us join with the grouped data:
+
+```{r joinwithgroupeddata}
+train[, 'freq1' := .N, by = passenger1]
+train[, 'freq2' := .N, by = passenger2]
+test[, 'freq1' := .N, by = passenger1]
+test[, 'freq2' := .N, by = passenger2]
+print(cor.test(train$freq1, train$Transported), method = "spearman")
+print(cor.test(train$freq2, train$Transported), method = "spearman")
+```
+
+The correlations are a bit better 8.26% and -8.83%.
+
+Now let us get some information on popularity of names and surnames.
+
+```{r popularityofnames}
+train <- train[, firstname := sapply(Name, function(x) {strsplit(x, " ")[[1]][1]})]
+train <- train[, lastname := sapply(Name, function(x) {strsplit(x, " ")[[1]][2]})]
+train[, 'first_name_popularity' := .N, by = firstname]
+train[, 'last_name_popularity' := .N, by = lastname]
+train[is.na(firstname), first_name_popularity := NA]
+train[is.na(lastname), last_name_popularity := NA]
+mean1 <- mean(train$first_name_popularity, na.rm=TRUE)
+train[is.na(firstname), first_name_popularity := mean1]
+mean2 <- mean(train$last_name_popularity, na.rm=TRUE)
+train[is.na(lastname), last_name_popularity := mean2]
+test <- test[, firstname := sapply(Name, function(x) {strsplit(x, " ")[[1]][1]})]
+test <- test[, lastname := sapply(Name, function(x) {strsplit(x, " ")[[1]][2]})]
+test[, 'first_name_popularity' := .N, by = firstname]
+test[, 'last_name_popularity' := .N, by = lastname]
+test[is.na(firstname), first_name_popularity := NA]
+test[is.na(lastname), last_name_popularity := NA]
+mean1 <- mean(test$first_name_popularity, na.rm=TRUE)
+test[is.na(firstname), first_name_popularity := mean1]
+mean2 <- mean(test$last_name_popularity, na.rm=TRUE)
+test[is.na(lastname), last_name_popularity := mean2]
+print(cor.test(train$first_name_popularity, train$Transported), method = "spearman")
+print(cor.test(train$last_name_popularity, train$Transported), method = "spearman")
+```
+
+Correlation with first_name_popularity is -10.89%, with last_name_popularity is -3.29%.
+
+Let us try to extract the information on gender from the data.
+
+```{r extract_gender}
+train[, last_letter_first_name := sapply(firstname, function(x) {substr(x, nchar(x), nchar(x))})]
+train[, last_letter_last_name := sapply(lastname, function(x) {substr(x, nchar(x), nchar(x))})]
+train[, last_letter_first_name_a := (last_letter_first_name == 'a')]
+train[, last_letter_first_name_e := (last_letter_first_name == 'e')]
+train[, last_letter_last_name_a := (last_letter_last_name == 'a')]
+train[, is_female := as.numeric(last_letter_first_name_a | last_letter_first_name_e | last_letter_last_name_a)]
+test[, last_letter_first_name := sapply(firstname, function(x) {substr(x, nchar(x), nchar(x))})]
+test[, last_letter_last_name := sapply(lastname, function(x) {substr(x, nchar(x), nchar(x))})]
+test[, last_letter_first_name_a := (last_letter_first_name == 'a')]
+test[, last_letter_first_name_e := (last_letter_first_name == 'e')]
+test[, last_letter_last_name_a := (last_letter_last_name == 'a')]
+test[, is_female := as.numeric(last_letter_first_name_a | last_letter_first_name_e | last_letter_last_name_a)]
+train[is.na(is_female), is_female := 0]
+test[is.na(is_female), is_female := 0]
+print(table(train$is_female))
+print(cor.test(train$is_female, train$Transported, method="spearman"))
+```
+
+We see that there are more men and then women, and that there is a slight but significant correlation between being female and being Transported (-5.57%).
+
+Let us try to get the information on families.
+
+```{r extract_info_on_families}
+test$Transported <- -1
+full <- rbind(train, test)
+full$took_from_family <- -1
+for (j in 1:nrow(full)) {
+  if (j %% 1000 == 0) {print(j)}
+  surname <- full$lastname[j]
+  rest <- full[-j, ][lastname == surname, ]
+  if (nrow(rest) > 0) {
+    full$took_from_family[j] <- mean(rest$Transported)
+  }
+}
+```
+
+Let us calculate the correlatio and do the train-test split.
+
+```{r split}
+train <- full[Transported > -1, ]
+test <- full[Transported < 0, ]
+print(cor.test(train$took_from_family, train$Transported), method = "spearman")
+```
+
+We see a slight correlation for family members (6.14%). A slight but significant one.
+
+Let us choose only the relevant columns.
+
+```{r relevantcolumns}
+train <- train[, list(HomePlanet, CryoSleep, Destination, Age, VIP, RoomService, FoodCourt, ShoppingMall, Spa, VRDeck, numberOfChars, numberOfWords, cabin_1, cabin_2, cabin_3, passenger1, passenger2, freq1, freq2, first_name_popularity, last_name_popularity, is_female, took_from_family, Transported)]
+test <- test[, list(HomePlanet, CryoSleep, Destination, Age, VIP, RoomService, FoodCourt, ShoppingMall, Spa, VRDeck, numberOfChars, numberOfWords, cabin_1, cabin_2, cabin_3, passenger1, passenger2, freq1, freq2, first_name_popularity, last_name_popularity, is_female, took_from_family)]
+```
+
+Let us do standartization.
+
+```{r standartization}
+train <- as.data.frame(train)
+test <- as.data.frame(test)
+for (col in c("HomePlanet", "Destination", "numberOfChars", "numberOfWords")) {
+  train[, col] <- train[, col]/mean(train[, col])
+  test[, col] <- test[, col]/mean(test[, col])
+}
+for (col in c("Age", "RoomService", "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "cabin_1", "cabin_2", "cabin_3", "passenger1", "passenger2", "freq1", "freq2", "first_name_popularity", "last_name_popularity")) {
+  train[, col] <- (train[, col] - mean(train[, col]))/sd(train[, col])
+  test[, col] <- (test[, col] - mean(test[, col]))/sd(test[, col])
+}
+```

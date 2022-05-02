@@ -1,0 +1,251 @@
+---
+title: "Spaceship_Titanic"
+output: pdf_document
+date: '2022-04-17'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Modelling
+
+Let us do train-test split:
+
+```{r train-test-split}
+set.seed(239)
+indices <- sample(1:nrow(train), 0.75*nrow(train))
+training_set <- train[indices, ]
+validation_set <- train[-indices, ]
+```
+
+Let us attach the necessary libraries.
+
+```{r attach_libraries}
+library(mlr3)
+library(mlr3tuning)
+library(paradox)
+library(mlr3learners)
+library(mlr3verse)
+training_set$Transported <- as.factor(training_set$Transported)
+validation_set$Transported <- as.factor(validation_set$Transported)
+```
+
+Let us train the decision tree model and estimate its quality.
+
+```{r decision_tree_model}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = training_set, 
+                        target = "Transported")
+learner_rpart <- lrn("classif.rpart", task_type="classif", predict_types="response", feature_types="numeric",
+                     cp = 0.0025)
+print(learner_rpart$param_set)
+resampling <- rsmp("cv", folds = 5)
+measure <- msr("classif.acc")
+resampling_results <- resample(task, learner_rpart, resampling)
+result <- median(resampling_results$score(measures = c(measure))$classif.acc)
+print(result)
+```
+
+We have accuracy of 77.9% on the CV.
+Let us track the results on the hold-out dataset.
+
+```{r decision_on_test}
+set.seed(239)
+learner_rpart$train(task)
+predictions <- learner_rpart$predict_newdata(newdata = validation_set)
+print(sum(predictions$truth == predictions$response)/length(predictions$response))
+```
+
+We have accuracy of 78.7% on the hold-out dataset.
+
+Let us try to tune an xgboost model.
+
+```{r tune_xgboost_model}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = training_set, 
+                        target = "Transported")
+learner_xgboost <- lrn("classif.xgboost", task_type="classif", predict_types="response", feature_types="numeric",
+                       alpha=10, num_parallel_tree=100, subsample=0.45, eta = 0.01)
+print(learner_xgboost$param_set)
+resampling <- rsmp("cv", folds = 5)
+measure <- msr("classif.acc")
+resampling_results <- resample(task, learner_xgboost, resampling)
+result <- median(resampling_results$score(measures = c(measure))$classif.acc)
+print(result)
+```
+
+78.68%
+
+We have accuracy of 78.68% on the CV.
+Let us track the results on the hold-out dataset.
+
+```{r xgboost_on_test}
+set.seed(239)
+learner_xgboost$train(task)
+predictions <- learner_xgboost$predict_newdata(newdata = validation_set)
+print(sum(predictions$truth == predictions$response)/length(predictions$response))
+```
+
+We have accuracy of 79.39% on the hold-out dataset.
+Now let us look at the results of a random forest model.
+
+```{r tuning_ranger}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = training_set, 
+                        target = "Transported")
+learner_ranger <- lrn("classif.ranger", task_type="classif", predict_types="response", feature_types="numeric",
+                      num.trees=200, max.depth=25)
+print(learner_ranger$param_set)
+resampling <- rsmp("cv", folds = 5)
+measure <- msr("classif.acc")
+resampling_results <- resample(task, learner_ranger, resampling)
+result <- median(resampling_results$score(measures = c(measure))$classif.acc)
+print(result)
+```
+
+80.06%
+
+We have 79.83% on the CV. Now let us look at the results on the hold-out dataset:
+
+```{r ranger_on_test}
+set.seed(239)
+learner_ranger$train(task)
+predictions <- learner_ranger$predict_newdata(newdata = validation_set)
+print(sum(predictions$truth == predictions$response)/length(predictions$response))
+```
+
+80.31%
+
+We have accuracy of 81.19% on the hold-out dataset.
+Now let us look at the logistic regression model.
+
+```{r logreg}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = training_set, 
+                        target = "Transported")
+learner_logreg <- lrn("classif.log_reg", task_type="classif", predict_types="response", feature_types="numeric")
+print(learner_logreg$param_set)
+resampling <- rsmp("cv", folds = 5)
+measure <- msr("classif.acc")
+resampling_results <- resample(task, learner_logreg, resampling)
+result <- median(resampling_results$score(measures = c(measure))$classif.acc)
+print(result)
+```
+We have 77.99% on the CV. Now let us look at the results on the hold-out dataset:
+
+```{r logreg_on_test}
+set.seed(239)
+learner_logreg$train(task)
+predictions <- learner_logreg$predict_newdata(newdata = validation_set)
+print(sum(predictions$truth == predictions$response)/length(predictions$response))
+```
+
+We have 79.3% on the hold-out dataset.
+Now let us try to apply neural networks.
+
+```{r nnet_tuning}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = training_set, 
+                        target = "Transported")
+learner_nnet <- lrn("classif.nnet", task_type="classif", predict_types="response", feature_types="numeric",
+                    size=10, decay=0.99, maxit=110)
+print(learner_nnet$param_set)
+resampling <- rsmp("cv", folds = 5)
+measure <- msr("classif.acc")
+resampling_results <- resample(task, learner_nnet, resampling)
+result <- median(resampling_results$score(measures = c(measure))$classif.acc)
+print(result)
+```
+
+80.29
+
+We have 80.67% (80.83%, 80.23%) on the CV. Now let us look at the results on the hold-out set.
+
+```{r nnet_on_test}
+set.seed(239)
+learner_nnet$train(task)
+predictions <- learner_nnet$predict_newdata(newdata = validation_set)
+print(sum(predictions$truth == predictions$response)/length(predictions$response))
+```
+
+
+80.87%
+
+We have 80.45% on the hold-out dataset.
+
+```{r nnet_tuning_an_another_seed}
+set.seed(218)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = training_set, 
+                        target = "Transported")
+learner_nnet <- lrn("classif.nnet", task_type="classif", predict_types="response", feature_types="numeric",
+                    size=10, decay=0.99, maxit=115)
+print(learner_nnet$param_set)
+resampling <- rsmp("cv", folds = 5)
+measure <- msr("classif.acc")
+resampling_results <- resample(task, learner_nnet, resampling)
+result <- median(resampling_results$score(measures = c(measure))$classif.acc)
+print(result)
+```
+
+80.67
+
+```{r nnet_on_test}
+set.seed(239)
+learner_nnet$train(task)
+predictions <- learner_nnet$predict_newdata(newdata = validation_set)
+print(sum(predictions$truth == predictions$response)/length(predictions$response))
+```
+
+81.05%
+
+Now let us apply automl.
+
+```{r automl}
+library(automl)
+library(magrittr)
+set.seed(239)
+training_set <- train[indices, ]
+validation_set <- train[-indices, ]
+amlmodel = automl_train_manual(Xref = subset(training_set, select = -c(Transported)),
+                               Yref = subset(training_set, select = c(Transported))$Transported
+                               %>% as.numeric(),
+                               hpar = list(learningrate = 0.001,
+                               minibatchsize = 2^2,
+                               numiterations = 50))
+res <- cbind(subset(validation_set, select = c(Transported))$Transported
+                               %>% as.numeric(), automl_predict(model = amlmodel, X = subset(validation_set, select = -c(Transported))))
+res[, 2] <- round(res[, 2])
+print(nrow(res[res[, 1] == res[, 2],])/nrow(res))
+```
+
+80.04%
+
+We have 79.81% on the hold-out dataset.
+Let us try to build an interpretable model.
+
+```{r interpretable}
+print(cor.test(training_set$CryoSleep, training_set$Transported), method="Spearman")
+print(cor.test(training_set$RoomService + training_set$Spa + training_set$VRDeck, training_set$Transported), method="Spearman")
+threshold <- median(training_set$RoomService + training_set$Spa + training_set$VRDeck)
+training_set$Key <- 1
+training_set[training_set$RoomService + training_set$Spa + training_set$VRDeck >= threshold, ]$Key <- 0
+print(cor.test(training_set$Key, training_set$Transported), method="Spearman")
+training_set$interpretable_criterion <- training_set$CryoSleep*training_set$Key 
+print(cor.test(training_set$interpretable_criterion, training_set$Transported), method="Spearman")
+print(nrow(training_set[training_set$interpretable_criterion == training_set$Transported,])/nrow(training_set))
+validation_set$Key <- 1
+validation_set[validation_set$RoomService + validation_set$Spa + validation_set$VRDeck >= threshold, ]$Key <- 0
+print(cor.test(validation_set$Key, validation_set$Transported), method="Spearman")
+validation_set$interpretable_criterion <- validation_set$CryoSleep*validation_set$Key 
+print(cor.test(validation_set$interpretable_criterion, validation_set$Transported), method="Spearman")
+print(nrow(validation_set[validation_set$interpretable_criterion == validation_set$Transported,])/nrow(validation_set))
+```
+
+The interpretable model gives accuracy of 71.8%.

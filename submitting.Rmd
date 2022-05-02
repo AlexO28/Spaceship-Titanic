@@ -1,0 +1,352 @@
+---
+title: "submitting.Rmd"
+author: "Alexey Osipov"
+date: '2022-04-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Submitting.
+
+Let us start from an interpretable model.
+
+```{r interpretable}
+threshold <- median(train$RoomService + train$Spa + train$VRDeck)
+test$Key <- 1
+test[test$RoomService + test$Spa + test$VRDeck >= threshold, ]$Key <- 0
+test$interpretable_criterion <- test$CryoSleep*test$Key 
+test$Transported <- as.logical(test$interpretable_criterion)
+```
+
+Let us get the raw data and submit.
+
+```{r get_raw_data}
+setwd("C:/playground/spaceship-titanic/")
+test_raw <- fread("test.csv")
+```
+
+Let us submit the interpretable model.
+
+```{r interpretable_submission}
+test_interpretable <- data.frame(PassengerId = test_raw$PassengerId, Transported = test$Transported)
+test_interpretable$Transported <- as.character(test_interpretable$Transported)
+test_interpretable$Transported[test_interpretable$Transported == "TRUE"] <- "True"
+test_interpretable$Transported[test_interpretable$Transported == "FALSE"] <- "False"
+library(data.table)
+fwrite(test_interpretable, "submission_interpretable.csv", sep=',')
+```
+
+Now let us prepare the random forest based model.
+
+```{r clean up}
+train$Transported <- as.factor(train$Transported)
+test$Transported <- NULL
+test$interpretable_criterion <- NULL
+test$Key <- NULL
+```
+
+```{r ranger}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_ranger <- lrn("classif.ranger", task_type="classif", predict_types="response", feature_types="numeric",
+                      num.trees=200, max.depth=20)
+learner_ranger$train(task)
+predictions <- learner_ranger$predict_newdata(newdata = test)
+```
+
+Now let us submit predictions.
+
+```{r ranger_submit}
+values <- as.character(predictions$data$response)
+test_ranger <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_ranger$Transported[test_ranger$Transported == "1"] <- "True"
+test_ranger$Transported[test_ranger$Transported == "0"] <- "False"
+fwrite(test_ranger, "submission_ranger.csv", sep=',')
+```
+
+Now let us prepare the neural networks based model.
+
+```{r nnet}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_nnet <- lrn("classif.nnet", task_type="classif", predict_types="response", feature_types="numeric",
+                    size=10, decay=1)
+learner_nnet$train(task)
+predictions <- learner_nnet$predict_newdata(newdata = test)
+```
+
+Now let us submit predictions.
+
+```{r nnet_submit}
+values <- as.character(predictions$data$response)
+test_nnet <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_nnet$Transported[test_nnet$Transported == "1"] <- "True"
+test_nnet$Transported[test_nnet$Transported == "0"] <- "False"
+fwrite(test_nnet, "submission_nnet.csv", sep=',')
+```
+
+Let us try the automl-based model.
+
+```{r automl}
+train$Transported <- as.numeric(as.character(train$Transported))
+amlmodel = automl_train_manual(Xref = subset(train, select = -c(Transported)),
+                               Yref = subset(train, select = c(Transported))$Transported
+                               %>% as.numeric(),
+                               hpar = list(learningrate = 0.001,
+                               minibatchsize = 2^2,
+                               numiterations = 60))
+res <- automl_predict(model = amlmodel, X = test)
+```
+
+Let us submit the automl-based model.
+
+```{r automl_submit}
+values <- ifelse(res >= 0.5, "True", "False")
+test_automl <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+fwrite(test_automl, "submission_automl.csv", sep=',')
+```
+
+Let us try the xgboost solution.
+
+```{r xgboost}
+train$Transported <- as.factor(train$Transported)
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_xgboost <- lrn("classif.xgboost", task_type="classif", predict_types="response", feature_types="numeric",
+                       alpha=10, num_parallel_tree=100, subsample=0.45, eta = 0.01)
+learner_xgboost$train(task)
+predictions <- learner_xgboost$predict_newdata(newdata = test)
+```
+
+Let us submit the xgboost-based model.
+
+```{r xgboost_submit}
+values <- as.character(predictions$data$response)
+test_xgboost <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_xgboost$Transported[test_xgboost$Transported == "1"] <- "True"
+test_xgboost$Transported[test_xgboost$Transported == "0"] <- "False"
+fwrite(test_xgboost, "submission_xgboost.csv", sep=',')
+```
+
+Let us try to combined the automl and the xgboost models.
+
+```{r combination_xgboost_automl}
+values <- ifelse((test_xgboost$Transported == "False") | (test_automl$Transported == "False"), "False", "True")
+test_comb_2 <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+fwrite(test_comb_2, "submission_comb_2.csv", sep=',')
+```
+
+Let us try to combine all models.
+
+```{r combination}
+test_nnet$value <- ifelse(test_nnet$Transported == "True", 1, 0)
+test_ranger$value <- ifelse(test_ranger$Transported == "True", 1, 0)
+test_automl$value <- ifelse(test_automl$Transported == "True", 1, 0)
+test_xgboost$value <- ifelse(test_xgboost$Transported == "True", 1, 0)
+test_interpretable$value <- ifelse(test_interpretable$Transported == "True", 1, 0)
+weight_nnet <- 1
+weight_ranger <- abs((0.77998/0.79892))
+weight_automl <- abs((0.79822/0.79892))
+weight_xgboost <- abs((0.79144/0.79892))
+weight_interpretable <- abs((0.72550/0.79892))
+new_values <- round((test_nnet$value*weight_nnet + test_ranger$value*weight_ranger + test_automl$value*weight_automl + test_xgboost$value*weight_xgboost + test_interpretable$value*weight_interpretable)/(weight_nnet+weight_ranger+weight_xgboost+weight_automl+weight_interpretable))
+new_values <- ifelse(new_values == 1, "True", "False")
+test_combination <- data.frame(PassengerId = test_raw$PassengerId, Transported = new_values)
+fwrite(test_combination, "submission_combination.csv", sep=',')
+```
+
+Now let us slightly modify the nnet model.
+
+```{r nnet}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_nnet <- lrn("classif.nnet", task_type="classif", predict_types="response", feature_types="numeric",
+                    size=10, decay=1, maxit=90)
+learner_nnet$train(task)
+predictions <- learner_nnet$predict_newdata(newdata = test)
+```
+
+Now let us submit predictions.
+
+```{r nnet_submit}
+values <- as.character(predictions$data$response)
+test_nnet_mod <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_nnet_mod$Transported[test_nnet_mod$Transported == "1"] <- "True"
+test_nnet_mod$Transported[test_nnet_mod$Transported == "0"] <- "False"
+fwrite(test_nnet_mod, "submission_nnet_mod.csv", sep=',')
+```
+
+
+Combine 2 best solutions:
+
+```{r combine_2_best_submit}
+test_nnet$value <- ifelse(test_nnet$Transported == "True", 1, 0)
+test_automl$value <- ifelse(test_automl$Transported == "True", 1, 0)
+weight_nnet <- 1
+weight_automl <- 1
+new_values <- round((test_nnet$value*weight_nnet + test_automl$value*weight_automl)/(weight_nnet+weight_automl))
+new_values <- ifelse(new_values == 1, "True", "False")
+test_combination_2_best <- data.frame(PassengerId = test_raw$PassengerId, Transported = new_values)
+fwrite(test_combination_2_best, "submission_combination_2_best.csv", sep=',')
+```
+
+Combine 3 best solutions:
+
+```{r combine_3_best_submit}
+test_nnet$value <- ifelse(test_nnet$Transported == "True", 1, 0)
+test_nnet_mod$value <- ifelse(test_nnet_mod$Transported == "True", 1, 0)
+test_automl$value <- ifelse(test_automl$Transported == "True", 1, 0)
+weight_nnet <- 1
+weight_automl <- 0.79822/0.79892
+weight_nnet_mod <- 0.79682/0.79892
+new_values <- round((test_nnet$value*weight_nnet + test_automl$value*weight_automl + test_nnet_mod$value*weight_nnet_mod)/(weight_nnet+weight_automl + weight_nnet_mod))
+new_values <- ifelse(new_values == 1, "True", "False")
+test_combination_3_best <- data.frame(PassengerId = test_raw$PassengerId, Transported = new_values)
+fwrite(test_combination_3_best, "submission_combination_3_best.csv", sep=',')
+```
+
+We chose to add 2 new features.
+
+```{r get_raw_data}
+setwd("C:/playground/spaceship-titanic/")
+test_raw <- fread("test.csv")
+train_raw <- fread("train.csv")
+train$Transported <- as.factor(train$Transported)
+```
+
+Let us try the nnet model trained with them (and tuned).
+
+```{r nnet}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_nnet_2 <- lrn("classif.nnet", task_type="classif", predict_types="response", feature_types="numeric",
+                    size=10, decay=0.99, maxit=110)
+learner_nnet_2$train(task)
+predictions <- learner_nnet_2$predict_newdata(newdata = test)
+```
+
+```{r nnet_submit_2}
+values <- as.character(predictions$data$response)
+test_nnet_2 <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_nnet_2$Transported[test_nnet_2$Transported == "1"] <- "True"
+test_nnet_2$Transported[test_nnet_2$Transported == "0"] <- "False"
+fwrite(test_nnet_2, "submission_nnet_2.csv", sep=',')
+```
+
+Let us try the automl-based model with 2 new features.
+
+```{r automl}
+train$Transported <- as.numeric(as.character(train$Transported))
+amlmodel = automl_train_manual(Xref = subset(train, select = -c(Transported)),
+                               Yref = subset(train, select = c(Transported))$Transported
+                               %>% as.numeric(),
+                               hpar = list(learningrate = 0.001,
+                               minibatchsize = 2^2,
+                               numiterations = 50))
+res <- automl_predict(model = amlmodel, X = test)
+```
+
+Let us submit the automl-based model.
+
+```{r automl_submit}
+values <- ifelse(res >= 0.5, "True", "False")
+test_automl_2 <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+fwrite(test_automl_2, "submission_automl_2.csv", sep=',')
+```
+
+Let us try the nnet model trained with them (an another seed).
+
+```{r nnet}
+set.seed(218)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_nnet_3 <- lrn("classif.nnet", task_type="classif", predict_types="response", feature_types="numeric",
+                    size=10, decay=0.99, maxit=115)
+learner_nnet_3$train(task)
+predictions <- learner_nnet_3$predict_newdata(newdata = test)
+```
+
+```{r nnet_submit_3}
+values <- as.character(predictions$data$response)
+test_nnet_3 <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_nnet_3$Transported[test_nnet_3$Transported == "1"] <- "True"
+test_nnet_3$Transported[test_nnet_3$Transported == "0"] <- "False"
+fwrite(test_nnet_3, "submission_nnet_3.csv", sep=',')
+```
+
+Let us try an nnet based model with an another seed.
+
+```{r nnet}
+set.seed(218)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_nnet_4 <- lrn("classif.nnet", task_type="classif", predict_types="response", feature_types="numeric",
+                    size=10, decay=0.99, maxit=110)
+learner_nnet_4$train(task)
+predictions <- learner_nnet_4$predict_newdata(newdata = test)
+```
+
+```{r nnet_submit_4}
+values <- as.character(predictions$data$response)
+test_nnet_4 <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_nnet_4$Transported[test_nnet_4$Transported == "1"] <- "True"
+test_nnet_4$Transported[test_nnet_4$Transported == "0"] <- "False"
+fwrite(test_nnet_4, "submission_nnet_4.csv", sep=',')
+```
+
+
+Let us train the ranger model with the new features.
+
+```{r ranger}
+set.seed(239)
+task <- TaskClassif$new(id = "spaceship_titanic", 
+                        backend = train, 
+                        target = "Transported")
+learner_ranger_2 <- lrn("classif.ranger", task_type="classif", predict_types="response", feature_types="numeric",
+                      num.trees=200, max.depth=25)
+learner_ranger_2$train(task)
+predictions <- learner_ranger$predict_newdata(newdata = test)
+```
+
+Now let us submit predictions.
+
+```{r ranger_submit}
+values <- as.character(predictions$data$response)
+test_ranger_2 <- data.frame(PassengerId = test_raw$PassengerId, Transported = values)
+test_ranger_2$Transported[test_ranger_2$Transported == "1"] <- "True"
+test_ranger_2$Transported[test_ranger_2$Transported == "0"] <- "False"
+fwrite(test_ranger_2, "submission_ranger_2.csv", sep=',')
+```
+
+Let us try to combine 3 latest submissions after the current moment.
+
+```{r combine_3_latest_models_from_files}
+tab_nnet <- fread("submission_nnet.csv")
+tab_nnet_2 <- fread("submission_nnet_2.csv")
+tab_comb <- fread("submission_combination_3_best.csv")
+weight_nnet <- 0.79892/0.80219
+weight_nnet_2 <- 1
+weight_comb <- 0.799985/0.80219
+tab_nnet$value <- ifelse(tab_nnet$Transported == TRUE, 1, 0)
+tab_nnet_2$value <- ifelse(tab_nnet_2$Transported == TRUE, 1, 0)
+tab_comb$value <- ifelse(tab_comb$Transported == TRUE, 1, 0)
+new_values <- round((tab_nnet$value*weight_nnet + tab_nnet_2$value*weight_nnet_2 + tab_comb$value*weight_comb)/(weight_nnet+weight_comb + weight_nnet_2))
+new_values <- ifelse(new_values == 1, "True", "False")
+test_combination_3_best_2 <- data.frame(PassengerId = test_raw$PassengerId, Transported = new_values)
+fwrite(test_combination_3_best_2, "submission_combination_3_best_2.csv", sep=',')
+```
